@@ -1,0 +1,52 @@
+{
+  "entities": {
+    "Asset": {
+      "title": "Asset",
+      "description": "Information about a tracked market index or commodity.",
+      "type": "object",
+      "properties": {
+        "symbol": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string", "enum": ["index", "commodity"] },
+        "region": { "type": "string" },
+        "lastPrice": { "type": "number" },
+        "lastUpdated": { "type": "string", "format": "date-time" },
+        "returns": {
+          "type": "object",
+          "properties": {
+            "daily": { "type": "number" },
+            "weekly": { "type": "number" },
+            "monthly": { "type": "number" },
+            "sixMonth": { "type": "number" },
+            "oneYear": { "type": "number" },
+            "twoYear": { "type": "number" },
+            "threeYear": { "type": "number" },
+            "fiveYear": { "type": "number" }
+          }
+        }
+      },
+      "required": ["symbol", "name", "type"]
+    },
+    "PriceHistory": {
+      "title": "Price History",
+      "description": "Historical price data for an asset.",
+      "type": "object",
+      "properties": {
+        "symbol": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "close": { "type": "number" }
+      },
+      "required": ["symbol", "date", "close"]
+    }
+  },
+  "firestore": {
+    "/assets/{assetId}": {
+      "schema": "Asset",
+      "description": "Collection of tracked assets and their calculated returns."
+    },
+    "/assets/{assetId}/history/{historyId}": {
+      "schema": "PriceHistory",
+      "description": "Detailed historical price points for an asset."
+    }
+  }
+}
