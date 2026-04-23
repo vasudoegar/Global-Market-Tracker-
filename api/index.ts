@@ -21,7 +21,7 @@ const firebaseConfig = JSON.parse(readFileSync(firebaseConfigPath, 'utf-8'));
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
 
-// Assets to track (Reduced for reliability)
+// Assets to track
 const ASSETS = [
   { symbol: '^GSPC', name: 'S&P 500', type: 'index', region: 'USA' },
   { symbol: '^IXIC', name: 'Nasdaq 100', type: 'index', region: 'USA' },
@@ -30,6 +30,7 @@ const ASSETS = [
   { symbol: '^HSI', name: 'Hang Seng Index', type: 'index', region: 'Hong Kong' },
   { symbol: '^FTSE', name: 'FTSE 100', type: 'index', region: 'UK' },
   { symbol: 'GC=F', name: 'Gold', type: 'commodity', region: 'Global' },
+  { symbol: 'SI=F', name: 'Silver', type: 'commodity', region: 'Global' },
   { symbol: 'CL=F', name: 'Crude Oil', type: 'commodity', region: 'Global' },
 ];
 
@@ -226,7 +227,7 @@ function getSnapshotId() {
 
 app.get('/api/market-data', async (req, res) => {
   try {
-    const snapshotId = `v3_${getSnapshotId()}`;
+    const snapshotId = `v4_${getSnapshotId()}`;
     const snapshotRef = doc(db, 'snapshots', snapshotId);
     
     // 1. Check Cache First
