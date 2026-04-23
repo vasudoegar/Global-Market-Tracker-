@@ -124,7 +124,7 @@ function calculateReturns(history: any[]) {
   };
 }
 
-function calculateRiskMetrics(history: any[]) {
+function calculateRiskMetrics(history: any[], benchmarkHistory?: any[]) {
   if (!history || history.length < 20) return null;
 
   // 1. Calculate Daily Returns
@@ -139,7 +139,7 @@ function calculateRiskMetrics(history: any[]) {
 
   if (dailyReturns.length < 10) return null;
 
-  // 2. Annualized Volatility (Std Dev of Returns * sqrt(252))
+  // 2. Annualized Volatility
   const mean = dailyReturns.reduce((a, b) => a + b, 0) / dailyReturns.length;
   const variance = dailyReturns.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / (dailyReturns.length - 1);
   const volatility = Math.sqrt(variance) * Math.sqrt(252) * 100;
@@ -157,19 +157,75 @@ function calculateRiskMetrics(history: any[]) {
     }
   }
 
-  // 4. Sharpe Ratio (Approx: Annualized Return - RF) / Annualized Volatility
+  // 4. Annualized Return (CAGR)
   const lastPrice = history[history.length - 1].close;
   const firstPrice = history[0].close;
-  const years = (new Date(history[history.length-1].date).getTime() - new Date(history[0].date).getTime()) / (1000 * 60 * 60 * 24 * 365);
-  const annualizedReturn = (Math.pow(lastPrice / firstPrice, 1 / years) - 1) * 100;
-  
-  const riskFreeRate = 2.0; // 2% prototype RF
-  const sharpeRatio = volatility > 0 ? (annualizedReturn - riskFreeRate) / volatility : 0;
+  const years = (new Date(history[history.length - 1].date).getTime() - new Date(history[0].date).getTime()) / (1000 * 60 * 60 * 24 * 365);
+  const cagr = (Math.pow(lastPrice / firstPrice, 1 / years) - 1) * 100;
+
+  // 5. Sharpe Ratio
+  const riskFreeRate = 2.0; 
+  const sharpeRatio = volatility > 0 ? (cagr - riskFreeRate) / volatility : 0;
+
+  // 6. Sortino Ratio (Downside Deviation)
+  const negativeReturns = dailyReturns.filter(r => r < 0);
+  const downsideVariance = negativeReturns.length > 0 
+    ? negativeReturns.reduce((a, b) => a + Math.pow(b, 2), 0) / dailyReturns.length // Use total count for downside 
+    : 0;
+  const downsideDeviation = Math.sqrt(downsideVariance) * Math.sqrt(252) * 100;
+  const sortinoRatio = downsideDeviation > 0 ? (cagr - riskFreeRate) / downsideDeviation : 0;
+
+  // 7. Calmar Ratio
+  const calmarRatio = Math.abs(maxDD) > 0 ? cagr / Math.abs(maxDD) : 0;
+
+  // 8. Beta (relative to benchmark)
+  let beta = null;
+  if (benchmarkHistory && benchmarkHistory.length > 20) {
+    // Sync histories to align return dates
+    const assetReturns: number[] = [];
+    const benchReturns: number[] = [];
+    
+    // Simple alignment: find matching dates
+    const benchMap = new Map(benchmarkHistory.map(h => [new Date(h.date).toDateString(), h.close]));
+    
+    for (let i = 1; i < history.length; i++) {
+      const dateStr = new Date(history[i].date).toDateString();
+      const prevDateStr = new Date(history[i-1].date).toDateString();
+      const assetRet = (history[i].close / history[i-1].close) - 1;
+      
+      const benchCurr = benchMap.get(dateStr);
+      const benchPrev = benchMap.get(prevDateStr);
+      
+      if (benchCurr && benchPrev && benchPrev > 0) {
+        assetReturns.push(assetRet);
+        benchReturns.push((benchCurr / benchPrev) - 1);
+      }
+    }
+
+    if (benchReturns.length > 10) {
+      const benchMean = benchReturns.reduce((a, b) => a + b, 0) / benchReturns.length;
+      const assetMean = assetReturns.reduce((a, b) => a + b, 0) / assetReturns.length;
+      
+      let covariance = 0;
+      let benchVariance = 0;
+      
+      for (let i = 0; i < benchReturns.length; i++) {
+        covariance += (assetReturns[i] - assetMean) * (benchReturns[i] - benchMean);
+        benchVariance += Math.pow(benchReturns[i] - benchMean, 2);
+      }
+      
+      beta = benchVariance > 0 ? covariance / benchVariance : 1;
+    }
+  }
 
   return {
     volatility,
     maxDrawdown: maxDD,
-    sharpeRatio
+    sharpeRatio,
+    sortinoRatio,
+    calmarRatio,
+    cagr,
+    beta
   };
 }
 
@@ -195,6 +251,10 @@ async function startServer() {
 app.get('/api/market-data', async (req, res) => {
   try {
     const now = new Date();
+    
+    // Fetch benchmark (S&P 500) once
+    const sp500History = await fetchHistoricalData('^GSPC');
+    
     const results = await Promise.all(ASSETS.map(async (asset) => {
       const fullHistory = await fetchHistoricalData(asset.symbol);
       const returns = calculateReturns(fullHistory);
@@ -204,11 +264,17 @@ app.get('/api/market-data', async (req, res) => {
       const history2Y = filterHistoryByDate(fullHistory, subYears(now, 2));
       const history1Y = filterHistoryByDate(fullHistory, subYears(now, 1));
 
+      // Benchmarks for beta
+      const bench5Y = filterHistoryByDate(sp500History, subYears(now, 5));
+      const bench3Y = filterHistoryByDate(sp500History, subYears(now, 3));
+      const bench2Y = filterHistoryByDate(sp500History, subYears(now, 2));
+      const bench1Y = filterHistoryByDate(sp500History, subYears(now, 1));
+
       const riskMetrics: any = {
-        '1Y': calculateRiskMetrics(history1Y),
-        '2Y': calculateRiskMetrics(history2Y),
-        '3Y': calculateRiskMetrics(history3Y),
-        '5Y': calculateRiskMetrics(history5Y),
+        '1Y': calculateRiskMetrics(history1Y, bench1Y),
+        '2Y': calculateRiskMetrics(history2Y, bench2Y),
+        '3Y': calculateRiskMetrics(history3Y, bench3Y),
+        '5Y': calculateRiskMetrics(history5Y, bench5Y),
       };
 
       const lastPoint = fullHistory[fullHistory.length - 1];

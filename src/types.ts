@@ -28,6 +28,10 @@ export interface AssetData {
       volatility: number | null;
       maxDrawdown: number | null;
       sharpeRatio: number | null;
+      sortinoRatio: number | null;
+      calmarRatio: number | null;
+      cagr: number | null;
+      beta: number | null;
     };
   };
 }

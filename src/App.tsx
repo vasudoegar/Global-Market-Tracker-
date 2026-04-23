@@ -214,7 +214,7 @@ export default function App() {
 
       <main className="flex-1 flex flex-col p-4 gap-4 overflow-hidden">
         {/* Top Section: Table */}
-        <div className="bg-[#151921] border border-[#2D3139] rounded overflow-hidden shadow-2xl flex-shrink-0 max-h-[50%] overflow-y-auto">
+        <div className="bg-[#151921] border border-[#2D3139] rounded shadow-2xl flex-shrink-0 max-h-[50%] overflow-y-auto custom-scrollbar">
           <table className="w-full text-left text-[11px] border-collapse">
             <thead>
               <tr className="bg-[#1E222D] text-gray-400 font-mono sticky top-0 z-10">
@@ -354,7 +354,7 @@ export default function App() {
             )}
           </div>
 
-          <div className="w-80 bg-[#151921] border border-[#2D3139] rounded p-4 flex flex-col gap-4 overflow-hidden shadow-xl">
+          <div className="w-80 bg-[#151921] border border-[#2D3139] rounded p-4 flex flex-col gap-4 overflow-y-auto shadow-xl custom-scrollbar">
             <h3 className="text-[10px] font-bold uppercase text-gray-500 tracking-widest">Risk & Technicals ({timeframe})</h3>
             
             <div className="space-y-4">
@@ -411,6 +411,33 @@ export default function App() {
                   />
                 </div>
               </div>
+
+              <div className="grid grid-cols-2 gap-3 mt-2">
+                <div className="bg-[#1E222D] p-2 rounded border border-[#2D3139]">
+                  <p className="text-[8px] text-gray-500 uppercase font-bold mb-1">CAGR ({timeframe})</p>
+                  <p className={cn("text-xs font-mono font-bold", getReturnColor(selectedAsset.riskMetrics[timeframe]?.cagr))}>
+                    {formatPercent(selectedAsset.riskMetrics[timeframe]?.cagr)}
+                  </p>
+                </div>
+                <div className="bg-[#1E222D] p-2 rounded border border-[#2D3139]">
+                  <p className="text-[8px] text-gray-500 uppercase font-bold mb-1">Sortino ({timeframe})</p>
+                  <p className="text-xs font-mono font-bold text-[#00C087]">
+                    {selectedAsset.riskMetrics[timeframe]?.sortinoRatio?.toFixed(2) || '--'}
+                  </p>
+                </div>
+                <div className="bg-[#1E222D] p-2 rounded border border-[#2D3139]">
+                  <p className="text-[8px] text-gray-500 uppercase font-bold mb-1">Calmar ({timeframe})</p>
+                  <p className="text-xs font-mono font-bold text-[#F59E0B]">
+                    {selectedAsset.riskMetrics[timeframe]?.calmarRatio?.toFixed(2) || '--'}
+                  </p>
+                </div>
+                <div className="bg-[#1E222D] p-2 rounded border border-[#2D3139]">
+                  <p className="text-[8px] text-gray-500 uppercase font-bold mb-1">Beta (vs S&P)</p>
+                  <p className="text-xs font-mono font-bold text-[#8B5CF6]">
+                    {selectedAsset.riskMetrics[timeframe]?.beta?.toFixed(2) || '--'}
+                  </p>
+                </div>
+              </div>
             </div>
 
             <div className="mt-auto border-t border-[#2D3139] pt-3">
@@ -422,7 +449,8 @@ export default function App() {
                     : "Terminal awaiting target selection for quantitative analysis segment."}
                   {selectedAsset?.riskMetrics[timeframe] && (
                     <span className="opacity-70 ml-1">
-                      Risk profile ({timeframe}) shows a Sharpe Ratio of {selectedAsset.riskMetrics[timeframe]?.sharpeRatio?.toFixed(2)} with realized volatility centered at {selectedAsset.riskMetrics[timeframe]?.volatility?.toFixed(1)}%.
+                      Period CAGR at {formatPercent(selectedAsset.riskMetrics[timeframe]?.cagr)} with a Sharpe Ratio of {selectedAsset.riskMetrics[timeframe]?.sharpeRatio?.toFixed(2)}. 
+                      Systematic risk (Beta) relative to S&P 500 is {selectedAsset.riskMetrics[timeframe]?.beta?.toFixed(2)}.
                     </span>
                   )}
                 </p>
