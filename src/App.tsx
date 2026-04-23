@@ -48,12 +48,16 @@ export default function App() {
       const response = await fetch('/api/market-data');
       if (!response.ok) throw new Error('Failed to fetch data');
       const json = await response.json();
-      setData(json);
-      if (json.length > 0 && !selectedAsset) {
-        setSelectedAsset(json[0]);
+      if (Array.isArray(json) && json.length > 0) {
+        setData(json);
+        if (!selectedAsset) {
+          setSelectedAsset(json[0]);
+        }
+      } else {
+        throw new Error('No quantitative data available for the current sector.');
       }
-    } catch (err) {
-      setError('Error loading market data. Please try again later.');
+    } catch (err: any) {
+      setError(err.message || 'Error loading market data. Please try again later.');
       console.error(err);
     } finally {
       setLoading(false);
@@ -138,14 +142,34 @@ export default function App() {
     return currency === 'USD' ? formatCurrency(price) : formatCurrency(price * USD_TO_INR, 'INR');
   };
 
+  if (error && data.length === 0) {
+    return (
+      <div className="flex flex-col h-screen bg-[#0B0E14] text-[#E1E4E8] items-center justify-center font-mono p-10 text-center">
+        <Activity className="w-8 h-8 text-[#FF3B30] mb-4 opacity-50" />
+        <p className="text-sm text-[#FF3B30] uppercase mb-4">{error}</p>
+        <button 
+          onClick={() => fetchData()}
+          className="px-6 py-2 bg-[#2D3139] border border-[#FF3B30]/30 rounded text-[10px] font-semibold uppercase hover:bg-[#FF3B30]/10 transition-colors"
+        >
+          Re-initialize Session
+        </button>
+      </div>
+    );
+  }
+
   if (loading && data.length === 0) {
     return (
       <div className="flex flex-col h-screen bg-[#0B0E14] text-[#E1E4E8] items-center justify-center font-mono">
         <Activity className="w-8 h-8 animate-pulse text-[#3B82F6] mb-4" />
-        <p className="text-xs tracking-[0.2em] opacity-50 uppercase">Syncing Terminal...</p>
+        <div className="space-y-1 text-center">
+          <p className="text-xs tracking-[0.2em] opacity-50 uppercase">Syncing Terminal...</p>
+          <p className="text-[9px] text-[#3B82F6] opacity-40 uppercase">Establishing secure quant link</p>
+        </div>
       </div>
     );
   }
+
+  if (!selectedAsset) return null;
 
   return (
     <div className="flex flex-col h-screen bg-[#0B0E14] text-[#E1E4E8] font-sans overflow-hidden">

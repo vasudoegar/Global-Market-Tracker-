@@ -236,8 +236,9 @@ app.get('/api/market-data', async (req, res) => {
       results.push(...batchResults);
     }
     res.json(results);
-  } catch (error) {
-    res.status(500).json({ error: 'Retry' });
+  } catch (error: any) {
+    console.error('Market Data API Root Error:', error);
+    res.status(500).json({ error: error.message || 'Quantum link timeout. Retrying...' });
   }
 });
 
