@@ -26,12 +26,20 @@ const ASSETS = [
   { symbol: '^GSPC', name: 'S&P 500', type: 'index', region: 'USA' },
   { symbol: '^IXIC', name: 'Nasdaq 100', type: 'index', region: 'USA' },
   { symbol: '^NSEI', name: 'Nifty 50', type: 'index', region: 'India' },
+  { symbol: '^IBEX', name: 'IBEX 35', type: 'index', region: 'Spain' },
+  { symbol: '^BVSP', name: 'IBOVESPA', type: 'index', region: 'Brazil' },
+  { symbol: 'URTH', name: 'MSCI World', type: 'index', region: 'Global' },
+  { symbol: 'EEM', name: 'MSCI Emerging Markets', type: 'index', region: 'Global' },
   { symbol: '^N225', name: 'Nikkei 225', type: 'index', region: 'Japan' },
   { symbol: '^HSI', name: 'Hang Seng Index', type: 'index', region: 'Hong Kong' },
   { symbol: '^FTSE', name: 'FTSE 100', type: 'index', region: 'UK' },
+  { symbol: '^GDAXI', name: 'DAX Performance-Index', type: 'index', region: 'Germany' },
+  { symbol: '^FCHI', name: 'CAC 40', type: 'index', region: 'France' },
   { symbol: 'GC=F', name: 'Gold', type: 'commodity', region: 'Global' },
   { symbol: 'SI=F', name: 'Silver', type: 'commodity', region: 'Global' },
   { symbol: 'CL=F', name: 'Crude Oil', type: 'commodity', region: 'Global' },
+  { symbol: 'BTC-USD', name: 'Bitcoin', type: 'crypto', region: 'Global' },
+  { symbol: 'ETH-USD', name: 'Ethereum', type: 'crypto', region: 'Global' },
 ];
 
 const YahooFinance: any = (YahooFinancePkg as any).default || YahooFinancePkg;
@@ -48,7 +56,7 @@ if (yahooFinance.setGlobalConfig) {
 async function fetchHistoricalData(symbol: string) {
   try {
     const end = new Date();
-    const start = subYears(end, 3); // Reduced from 6 to 3 years
+    const start = subYears(end, 5); 
     
     // Explicit timeout for safety
     const timeout = (ms: number) => new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), ms));
@@ -227,7 +235,7 @@ function getSnapshotId() {
 
 app.get('/api/market-data', async (req, res) => {
   try {
-    const snapshotId = `v4_${getSnapshotId()}`;
+    const snapshotId = `v8_${getSnapshotId()}`;
     const snapshotRef = doc(db, 'snapshots', snapshotId);
     
     // 1. Check Cache First
@@ -241,6 +249,7 @@ app.get('/api/market-data', async (req, res) => {
     const now = new Date();
     const sp500History = await fetchHistoricalData('^GSPC');
     
+    const bench5Y = filterHistoryByDate(sp500History, subYears(now, 5));
     const bench3Y = filterHistoryByDate(sp500History, subYears(now, 3));
     const bench2Y = filterHistoryByDate(sp500History, subYears(now, 2));
     const bench1Y = filterHistoryByDate(sp500History, subYears(now, 1));
@@ -251,14 +260,15 @@ app.get('/api/market-data', async (req, res) => {
         const fullHistory = await fetchHistoricalData(asset.symbol);
         if (!fullHistory || fullHistory.length === 0) throw new Error('No data');
         const returns = calculateReturns(fullHistory);
-        const history3Y = filterHistoryByDate(fullHistory, subYears(now, 3));
+        const history5Y = filterHistoryByDate(fullHistory, subYears(now, 5));
         const riskMetrics: any = {
           '1Y': calculateRiskMetrics(filterHistoryByDate(fullHistory, subYears(now, 1)), bench1Y),
           '2Y': calculateRiskMetrics(filterHistoryByDate(fullHistory, subYears(now, 2)), bench2Y),
-          '3Y': calculateRiskMetrics(history3Y, bench3Y),
+          '3Y': calculateRiskMetrics(filterHistoryByDate(fullHistory, subYears(now, 3)), bench3Y),
+          '5Y': calculateRiskMetrics(history5Y, bench5Y),
         };
         const lastPoint = fullHistory[fullHistory.length - 1];
-        return { ...asset, lastPrice: lastPoint.close, lastUpdated: lastPoint.date, returns, riskMetrics, history: history3Y };
+        return { ...asset, lastPrice: lastPoint.close, lastUpdated: lastPoint.date, returns, riskMetrics, history: history5Y };
       } catch (err) {
         return { ...asset, lastPrice: 0, lastUpdated: new Date(), returns: null, riskMetrics: {}, history: [] };
       }
