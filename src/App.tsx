@@ -255,7 +255,7 @@ export default function App() {
         </span>
         <div className="ml-auto flex items-center gap-4 text-[10px] font-mono">
           <span className="text-[#00C087]">● MARKET OPEN</span>
-          <span className="text-gray-500 text-[9px]">NEXT SYNC: 23:30 IST</span>
+          <span className="text-gray-500 text-[9px]">NEXT SYNC: 03:00 IST</span>
         </div>
       </nav>
 

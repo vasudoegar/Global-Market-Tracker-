@@ -223,9 +223,9 @@ function getSnapshotId() {
   const now = new Date();
   const utcHours = now.getUTCHours();
   
-  // 11:30 PM IST = 6:00 PM (18:00) UTC
-  // If before 6PM UTC, use yesterday's date
-  if (utcHours < 18) {
+  // 3:00 AM IST = 9:30 PM (21:30) UTC of previous day
+  // Rotate snapshot when it hits 9:30 PM UTC
+  if (utcHours < 21 || (utcHours === 21 && now.getUTCMinutes() < 30)) {
     const yesterday = new Date(now);
     yesterday.setUTCDate(now.getUTCDate() - 1);
     return yesterday.toISOString().split('T')[0];
@@ -235,7 +235,7 @@ function getSnapshotId() {
 
 app.get('/api/market-data', async (req, res) => {
   try {
-    const snapshotId = `v8_${getSnapshotId()}`;
+    const snapshotId = `v9_${getSnapshotId()}`;
     const snapshotRef = doc(db, 'snapshots', snapshotId);
     
     // 1. Check Cache First
