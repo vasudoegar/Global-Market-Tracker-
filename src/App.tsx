@@ -23,7 +23,7 @@ export default function App() {
   const [currency, setCurrency] = useState<'USD' | 'INR'>('USD');
   const [sortConfig, setSortConfig] = useState<{ key: keyof AssetData | string, direction: 'asc' | 'desc' } | null>(null);
   const [activeFilter, setActiveFilter] = useState<'all' | 'index' | 'commodity'>('all');
-  const [timeframe, setTimeframe] = useState<'1Y' | '2Y' | '3Y' | '5Y'>('3Y');
+  const [timeframe, setTimeframe] = useState<'1Y' | '2Y' | '3Y'>('3Y');
 
   const chartData = useMemo(() => {
     if (!selectedAsset) return [];
@@ -252,7 +252,6 @@ export default function App() {
                 <th onClick={() => handleSort('returns.oneYear')} className="p-3 border-b border-[#2D3139] font-medium text-right uppercase cursor-pointer hover:text-white text-[#3B82F6]">1Y %</th>
                 <th onClick={() => handleSort('returns.twoYear')} className="p-3 border-b border-[#2D3139] font-medium text-right uppercase cursor-pointer hover:text-white">2Y %</th>
                 <th onClick={() => handleSort('returns.threeYear')} className="p-3 border-b border-[#2D3139] font-medium text-right uppercase cursor-pointer hover:text-white">3Y %</th>
-                <th onClick={() => handleSort('returns.fiveYear')} className="p-3 border-b border-[#2D3139] font-medium text-right uppercase cursor-pointer hover:text-white">5Y %</th>
               </tr>
             </thead>
             <tbody className="font-mono">
@@ -288,7 +287,6 @@ export default function App() {
                     <td className={cn("p-3 text-right font-bold", getReturnColor(asset.returns?.oneYear))}>{formatPercent(asset.returns?.oneYear)}</td>
                     <td className={cn("p-3 text-right", getReturnColor(asset.returns?.twoYear))}>{formatPercent(asset.returns?.twoYear)}</td>
                     <td className={cn("p-3 text-right", getReturnColor(asset.returns?.threeYear))}>{formatPercent(asset.returns?.threeYear)}</td>
-                    <td className={cn("p-3 text-right", getReturnColor(asset.returns?.fiveYear))}>{formatPercent(asset.returns?.fiveYear)}</td>
                   </motion.tr>
                 ))}
               </AnimatePresence>
@@ -306,12 +304,11 @@ export default function App() {
                     <h3 className="text-[10px] font-bold uppercase text-gray-500 tracking-widest">
                       HISTORICAL PERFORMANCE: {selectedAsset.name} ({
                         timeframe === '1Y' ? '12M' : 
-                        timeframe === '2Y' ? '24M' : 
-                        timeframe === '3Y' ? '36M' : '60M'
+                        timeframe === '2Y' ? '24M' : '36M'
                       })
                     </h3>
                     <div className="flex bg-[#1E222D] rounded border border-[#2D3139] p-0.5">
-                      {(['1Y', '2Y', '3Y', '5Y'] as const).map((tf) => (
+                      {(['1Y', '2Y', '3Y'] as const).map((tf) => (
                         <button 
                           key={tf}
                           onClick={() => setTimeframe(tf)}

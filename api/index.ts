@@ -8,25 +8,15 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Assets to track
+// Assets to track (Reduced for reliability)
 const ASSETS = [
   { symbol: '^GSPC', name: 'S&P 500', type: 'index', region: 'USA' },
   { symbol: '^IXIC', name: 'Nasdaq 100', type: 'index', region: 'USA' },
-  { symbol: '000001.SS', name: 'SSE Composite', type: 'index', region: 'China' },
-  { symbol: '^HSI', name: 'Hang Seng Index', type: 'index', region: 'Hong Kong' },
-  { symbol: '^FTSE', name: 'FTSE 100', type: 'index', region: 'UK' },
-  { symbol: '^GDAXI', name: 'DAX', type: 'index', region: 'Germany' },
-  { symbol: '^IBEX', name: 'IBEX 35', type: 'index', region: 'Spain' },
-  { symbol: '^BVSP', name: 'Bovespa', type: 'index', region: 'Brazil' },
   { symbol: '^NSEI', name: 'Nifty 50', type: 'index', region: 'India' },
   { symbol: '^N225', name: 'Nikkei 225', type: 'index', region: 'Japan' },
-  { symbol: '^KS11', name: 'KOSPI', type: 'index', region: 'South Korea' },
-  { symbol: 'VNM', name: 'VN Index (ETF)', type: 'index', region: 'Vietnam' },
-  { symbol: '^J203.JO', name: 'FTSE/JSE All Share', type: 'index', region: 'South Africa' },
-  { symbol: 'EEM', name: 'MSCI Emerging Markets', type: 'index', region: 'Emerging Markets' },
-  { symbol: 'URTH', name: 'MSCI World Index', type: 'index', region: 'Global' },
+  { symbol: '^HSI', name: 'Hang Seng Index', type: 'index', region: 'Hong Kong' },
+  { symbol: '^FTSE', name: 'FTSE 100', type: 'index', region: 'UK' },
   { symbol: 'GC=F', name: 'Gold', type: 'commodity', region: 'Global' },
-  { symbol: 'SI=F', name: 'Silver', type: 'commodity', region: 'Global' },
   { symbol: 'CL=F', name: 'Crude Oil', type: 'commodity', region: 'Global' },
 ];
 
@@ -44,12 +34,18 @@ if (yahooFinance.setGlobalConfig) {
 async function fetchHistoricalData(symbol: string) {
   try {
     const end = new Date();
-    const start = subYears(end, 6);
-    const chartResult = await yahooFinance.chart(symbol, {
+    const start = subYears(end, 3); // Reduced from 6 to 3 years
+    
+    // Explicit timeout for safety
+    const timeout = (ms: number) => new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), ms));
+    
+    const chartPromise = yahooFinance.chart(symbol, {
       period1: start,
       period2: end,
       interval: '1d'
     }, { validateResult: false });
+
+    const chartResult = await Promise.race([chartPromise, timeout(4000)]) as any;
     
     if (chartResult && chartResult.quotes) {
       return chartResult.quotes
@@ -205,13 +201,12 @@ app.get('/api/market-data', async (req, res) => {
   try {
     const now = new Date();
     const sp500History = await fetchHistoricalData('^GSPC');
-    const bench5Y = filterHistoryByDate(sp500History, subYears(now, 5));
     const bench3Y = filterHistoryByDate(sp500History, subYears(now, 3));
     const bench2Y = filterHistoryByDate(sp500History, subYears(now, 2));
     const bench1Y = filterHistoryByDate(sp500History, subYears(now, 1));
     
     const results: any[] = [];
-    const batchSize = 6; // Smaller batch for serverless
+    const batchSize = 4; // Smaller batch for stability
     
     for (let i = 0; i < ASSETS.length; i += batchSize) {
       const batch = ASSETS.slice(i, i + batchSize);
@@ -220,15 +215,14 @@ app.get('/api/market-data', async (req, res) => {
           const fullHistory = await fetchHistoricalData(asset.symbol);
           if (!fullHistory || fullHistory.length === 0) throw new Error('No data');
           const returns = calculateReturns(fullHistory);
-          const history5Y = filterHistoryByDate(fullHistory, subYears(now, 5));
+          const history3Y = filterHistoryByDate(fullHistory, subYears(now, 3));
           const riskMetrics: any = {
             '1Y': calculateRiskMetrics(filterHistoryByDate(fullHistory, subYears(now, 1)), bench1Y),
             '2Y': calculateRiskMetrics(filterHistoryByDate(fullHistory, subYears(now, 2)), bench2Y),
-            '3Y': calculateRiskMetrics(filterHistoryByDate(fullHistory, subYears(now, 3)), bench3Y),
-            '5Y': calculateRiskMetrics(history5Y, bench5Y),
+            '3Y': calculateRiskMetrics(history3Y, bench3Y),
           };
           const lastPoint = fullHistory[fullHistory.length - 1];
-          return { ...asset, lastPrice: lastPoint.close, lastUpdated: lastPoint.date, returns, riskMetrics, history: history5Y };
+          return { ...asset, lastPrice: lastPoint.close, lastUpdated: lastPoint.date, returns, riskMetrics, history: history3Y };
         } catch (err) {
           return { ...asset, lastPrice: 0, lastUpdated: new Date(), returns: null, riskMetrics: {}, history: [] };
         }
