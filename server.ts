@@ -229,14 +229,19 @@ function calculateRiskMetrics(history: any[], benchmarkHistory?: any[]) {
   };
 }
 
+const app = express();
+
+export default app;
+
 async function startServer() {
-  const app = express();
   const PORT = 3000;
 
-  // 1. OPEN PORT IMMEDIATELY
-  const server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`>>> SERVER LISTENING ON PORT ${PORT}`);
-  });
+  // 1. OPEN PORT ONLY IF NOT IN VERCEL
+  if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`>>> SERVER LISTENING ON PORT ${PORT}`);
+    });
+  }
 
   app.use(express.json());
 
