@@ -260,60 +260,80 @@ app.get('/api/market-data', async (req, res) => {
     // Fetch benchmark (S&P 500) once
     const sp500History = await fetchHistoricalData('^GSPC');
     
-    const results = await Promise.all(ASSETS.map(async (asset) => {
-      const fullHistory = await fetchHistoricalData(asset.symbol);
-      const returns = calculateReturns(fullHistory);
-      
-      const history5Y = filterHistoryByDate(fullHistory, subYears(now, 5));
-      const history3Y = filterHistoryByDate(fullHistory, subYears(now, 3));
-      const history2Y = filterHistoryByDate(fullHistory, subYears(now, 2));
-      const history1Y = filterHistoryByDate(fullHistory, subYears(now, 1));
+    // Benchmarks for beta
+    const bench5Y = filterHistoryByDate(sp500History, subYears(now, 5));
+    const bench3Y = filterHistoryByDate(sp500History, subYears(now, 3));
+    const bench2Y = filterHistoryByDate(sp500History, subYears(now, 2));
+    const bench1Y = filterHistoryByDate(sp500History, subYears(now, 1));
+    
+    // Process in smaller serial batches to avoid timeouts
+    const results: any[] = [];
+    const batchSize = 8;
+    
+    for (let i = 0; i < ASSETS.length; i += batchSize) {
+      const batch = ASSETS.slice(i, i + batchSize);
+      const batchResults = await Promise.all(batch.map(async (asset) => {
+        try {
+          const fullHistory = await fetchHistoricalData(asset.symbol);
+          if (!fullHistory || fullHistory.length === 0) throw new Error('No data');
+          
+          const returns = calculateReturns(fullHistory);
+          
+          const history5Y = filterHistoryByDate(fullHistory, subYears(now, 5));
+          const history3Y = filterHistoryByDate(fullHistory, subYears(now, 3));
+          const history2Y = filterHistoryByDate(fullHistory, subYears(now, 2));
+          const history1Y = filterHistoryByDate(fullHistory, subYears(now, 1));
 
-      // Benchmarks for beta
-      const bench5Y = filterHistoryByDate(sp500History, subYears(now, 5));
-      const bench3Y = filterHistoryByDate(sp500History, subYears(now, 3));
-      const bench2Y = filterHistoryByDate(sp500History, subYears(now, 2));
-      const bench1Y = filterHistoryByDate(sp500History, subYears(now, 1));
+          const riskMetrics: any = {
+            '1Y': calculateRiskMetrics(history1Y, bench1Y),
+            '2Y': calculateRiskMetrics(history2Y, bench2Y),
+            '3Y': calculateRiskMetrics(history3Y, bench3Y),
+            '5Y': calculateRiskMetrics(history5Y, bench5Y),
+          };
 
-      const riskMetrics: any = {
-        '1Y': calculateRiskMetrics(history1Y, bench1Y),
-        '2Y': calculateRiskMetrics(history2Y, bench2Y),
-        '3Y': calculateRiskMetrics(history3Y, bench3Y),
-        '5Y': calculateRiskMetrics(history5Y, bench5Y),
-      };
-
-      const lastPoint = fullHistory[fullHistory.length - 1];
-      
-      return {
-        ...asset,
-        lastPrice: lastPoint ? lastPoint.close : 0,
-        lastUpdated: lastPoint ? lastPoint.date : new Date(),
-        returns,
-        riskMetrics,
-        history: history5Y // Send 5Y historical context to client
-      };
-    }));
+          const lastPoint = fullHistory[fullHistory.length - 1];
+          
+          return {
+            ...asset,
+            lastPrice: lastPoint ? lastPoint.close : 0,
+            lastUpdated: lastPoint ? lastPoint.date : new Date(),
+            returns,
+            riskMetrics,
+            history: history5Y
+          };
+        } catch (err) {
+          console.error(`Failed to process ${asset.symbol}:`, err);
+          return {
+            ...asset,
+            lastPrice: 0,
+            lastUpdated: new Date(),
+            returns: null,
+            riskMetrics: {},
+            history: []
+          };
+        }
+      }));
+      results.push(...batchResults);
+    }
+    
     res.json(results);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch market data' });
+    console.error('Market Data API Root Error:', error);
+    res.status(500).json({ error: 'System busy. Please try again.' });
   }
 });
 
-  // 3. VITE INTEGRATION
-  try {
-    if (process.env.NODE_ENV !== 'production') {
+  // 3. VITE INTEGRATION (Development Only)
+  if (process.env.NODE_ENV !== 'production') {
+    try {
       const vite = await createViteServer({
         server: { middlewareMode: true },
         appType: 'spa',
       });
       app.use(vite.middlewares);
-    } else {
-      const distPath = path.join(process.cwd(), 'dist');
-      app.use(express.static(distPath));
-      app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
+    } catch (viteError) {
+      console.error('Vite initialization error:', viteError);
     }
-  } catch (viteError) {
-    console.error('Vite initialization error:', viteError);
   }
 }
 
