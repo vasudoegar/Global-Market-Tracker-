@@ -5,8 +5,15 @@ import { fileURLToPath } from 'url';
 import YahooFinancePkg from 'yahoo-finance2';
 import { subDays, subMonths, subYears } from 'date-fns';
 import dotenv from 'dotenv';
+import { initializeApp } from 'firebase/app';
+import { getFirestore, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore/lite';
+import firebaseConfig from '../firebase-applet-config.json';
 
 dotenv.config();
+
+// Initialize Firebase
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
 
 // Assets to track (Reduced for reliability)
 const ASSETS = [
@@ -45,18 +52,19 @@ async function fetchHistoricalData(symbol: string) {
       interval: '1d'
     }, { validateResult: false });
 
-    const chartResult = await Promise.race([chartPromise, timeout(4000)]) as any;
+    const chartResult = await Promise.race([chartPromise, timeout(15000)]) as any; // Increased to 15s
     
     if (chartResult && chartResult.quotes) {
       return chartResult.quotes
         .map((q: any) => ({
-          date: q.date,
+          date: q.date instanceof Date ? q.date.toISOString() : new Date(q.date).toISOString(),
           close: q.close || q.adjclose
         }))
-        .filter((point: any) => point && point.close !== null && point.close !== undefined);
+        .filter((point: any) => point && typeof point.close === 'number' && point.close > 0);
     }
     return [];
   } catch (error) {
+    console.error(`Yahoo Finance Fetch Error [${symbol}]:`, error);
     return [];
   }
 }
@@ -197,16 +205,42 @@ setupFrontend();
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
+function getSnapshotId() {
+  const now = new Date();
+  const utcHours = now.getUTCHours();
+  
+  // 11:30 PM IST = 6:00 PM (18:00) UTC
+  // If before 6PM UTC, use yesterday's date
+  if (utcHours < 18) {
+    const yesterday = new Date(now);
+    yesterday.setUTCDate(now.getUTCDate() - 1);
+    return yesterday.toISOString().split('T')[0];
+  }
+  return now.toISOString().split('T')[0];
+}
+
 app.get('/api/market-data', async (req, res) => {
   try {
+    const snapshotId = `v3_${getSnapshotId()}`;
+    const snapshotRef = doc(db, 'snapshots', snapshotId);
+    
+    // 1. Check Cache First
+    const cachedDoc = await getDoc(snapshotRef);
+    if (cachedDoc.exists()) {
+      console.log(`>>> CACHE HIT: Serving snapshot ${snapshotId}`);
+      return res.json(cachedDoc.data().assets);
+    }
+
+    console.log(`>>> CACHE MISS: Generating snapshot ${snapshotId}`);
     const now = new Date();
     const sp500History = await fetchHistoricalData('^GSPC');
+    
     const bench3Y = filterHistoryByDate(sp500History, subYears(now, 3));
     const bench2Y = filterHistoryByDate(sp500History, subYears(now, 2));
     const bench1Y = filterHistoryByDate(sp500History, subYears(now, 1));
     
     const results: any[] = [];
-    const batchSize = 4; // Smaller batch for stability
+    const batchSize = 4;
     
     for (let i = 0; i < ASSETS.length; i += batchSize) {
       const batch = ASSETS.slice(i, i + batchSize);
@@ -229,6 +263,17 @@ app.get('/api/market-data', async (req, res) => {
       }));
       results.push(...batchResults);
     }
+
+    // 2. Save to Cache ONLY if we have valid results with history
+    const hasValidData = results.some(r => r.history && r.history.length > 0);
+    if (hasValidData) {
+      await setDoc(snapshotRef, {
+        date: snapshotId,
+        assets: results,
+        updatedAt: serverTimestamp()
+      });
+    }
+
     res.json(results);
   } catch (error: any) {
     console.error('Market Data API Root Error:', error);

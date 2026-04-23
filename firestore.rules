@@ -1,36 +1,16 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Default deny
+    // Default deny all
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // Helper functions
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    function isValidAsset(data) {
-      return data.symbol is string && data.symbol.size() <= 20
-          && data.name is string && data.name.size() <= 100
-          && (data.type == 'index' || data.type == 'commodity');
-    }
-
-    // Assets: Publicly readable, backend-only writable (ideally)
-    // For this prototype, we'll allow front-end to read assets.
-    match /assets/{assetId} {
-      allow read: if true; // Publicly readable for dashboard
-      allow write: if false; // Only backend (privileged) or admin should write
-      
-      match /history/{historyId} {
-        allow read: if true;
-        allow write: if false;
-      }
+    // Snapshots: Allow read/write for the backend to manage the cache.
+    // In a prototype environment using the Client SDK on the backend, 
+    // we need to explicitly allow this access.
+    match /snapshots/{date} {
+      allow read, write: if true;
     }
   }
 }

@@ -26,16 +26,32 @@ export default function App() {
   const [timeframe, setTimeframe] = useState<'1Y' | '2Y' | '3Y'>('3Y');
 
   const chartData = useMemo(() => {
-    if (!selectedAsset) return [];
-    const now = new Date();
-    let sliceDate = new Date();
-    if (timeframe === '1Y') sliceDate = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
-    else if (timeframe === '2Y') sliceDate = new Date(now.getFullYear() - 2, now.getMonth(), now.getDate());
-    else if (timeframe === '3Y') sliceDate = new Date(now.getFullYear() - 3, now.getMonth(), now.getDate());
-    else if (timeframe === '5Y') sliceDate = new Date(now.getFullYear() - 5, now.getMonth(), now.getDate());
+    if (!selectedAsset?.history || selectedAsset.history.length === 0) return [];
     
-    const targetTime = sliceDate.getTime();
-    return selectedAsset.history.filter(p => new Date(p.date).getTime() >= targetTime);
+    const now = new Date();
+    const cutoff = new Date();
+    if (timeframe === '1Y') cutoff.setFullYear(now.getFullYear() - 1);
+    else if (timeframe === '2Y') cutoff.setFullYear(now.getFullYear() - 2);
+    else cutoff.setFullYear(now.getFullYear() - 3);
+    
+    const targetTime = cutoff.getTime();
+    
+    return selectedAsset.history
+      .map(p => {
+        // Robust date parsing for ISO strings, Dates, or Firestore Timestamps
+        let d: Date;
+        const rawDate = p.date as any;
+        if (typeof rawDate === 'string') d = new Date(rawDate);
+        else if (rawDate && typeof rawDate.seconds === 'number') d = new Date(rawDate.seconds * 1000);
+        else d = new Date(rawDate);
+        
+        return {
+          ...p,
+          timestamp: d.getTime()
+        };
+      })
+      .filter(p => !isNaN(p.timestamp) && p.timestamp >= targetTime)
+      .sort((a, b) => a.timestamp - b.timestamp);
   }, [selectedAsset, timeframe]);
 
   useEffect(() => {
@@ -236,7 +252,7 @@ export default function App() {
         </div>
       </nav>
 
-      <main className="flex-1 flex flex-col p-4 gap-4 overflow-hidden">
+      <main className="flex-1 flex flex-col p-4 gap-4 overflow-y-auto custom-scrollbar">
         {/* Top Section: Table */}
         <div className="bg-[#151921] border border-[#2D3139] rounded shadow-2xl flex-shrink-0 max-h-[50%] overflow-y-auto custom-scrollbar">
           <table className="w-full text-left text-[11px] border-collapse">
@@ -295,13 +311,14 @@ export default function App() {
         </div>
 
         {/* Bottom Section: Chart and Risk Panels */}
-        <div className="flex-1 flex gap-4 overflow-hidden">
-          <div className="flex-1 bg-[#151921] border border-[#2D3139] rounded p-4 flex flex-col shadow-xl">
+        <div className="flex flex-col lg:flex-row gap-4 flex-shrink-0 mb-8">
+          <div className="flex-1 bg-[#151921] border border-[#2D3139] rounded p-4 flex flex-col shadow-xl min-w-0 min-h-[450px] overflow-hidden">
             {selectedAsset ? (
               <>
                 <div className="flex justify-between items-center mb-4">
                   <div className="flex items-center gap-4">
-                    <h3 className="text-[10px] font-bold uppercase text-gray-500 tracking-widest">
+                    <h3 className="text-[10px] font-bold uppercase text-gray-500 tracking-widest flex items-center gap-2">
+                      <div className="w-2 h-2 bg-[#3B82F6] rounded-full animate-pulse" />
                       HISTORICAL PERFORMANCE: {selectedAsset.name} ({
                         timeframe === '1Y' ? '12M' : 
                         timeframe === '2Y' ? '24M' : '36M'
@@ -329,43 +346,53 @@ export default function App() {
                     </span>
                   </div>
                 </div>
-                <div className="flex-1 min-h-0">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={chartData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#2D3139" vertical={false} />
-                      <XAxis 
-                        dataKey="date" 
-                        hide 
-                      />
-                      <YAxis 
-                        domain={['auto', 'auto']}
-                        orientation="right"
-                        tick={{ fontSize: 9, fontFamily: 'monospace', fill: '#6B7280' }}
-                        axisLine={false}
-                        tickLine={false}
-                      />
-                      <Tooltip 
-                        contentStyle={{ 
-                          backgroundColor: '#1E222D', 
-                          border: '1px solid #2D3139', 
-                          color: '#E1E4E8', 
-                          fontFamily: 'monospace', 
-                          fontSize: '10px',
-                          borderRadius: '4px'
-                        }}
-                        itemStyle={{ color: '#E1E4E8' }}
-                        labelFormatter={(val) => formatDate(val)}
-                      />
-                      <Line 
-                        type="stepAfter" 
-                        dataKey="close" 
-                        stroke="#3B82F6" 
-                        strokeWidth={2}
-                        dot={false}
-                        activeDot={{ r: 4, fill: '#3B82F6' }}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
+                <div className="flex-1 min-h-[400px] relative mt-2">
+                  {chartData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={chartData} margin={{ top: 20, right: 60, left: 20, bottom: 20 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#2D3139" vertical={false} opacity={0.3} />
+                        <XAxis 
+                          dataKey="date" 
+                          hide
+                        />
+                        <YAxis 
+                          domain={['dataMin - (dataMax - dataMin) * 0.2', 'dataMax + (dataMax - dataMin) * 0.2']}
+                          orientation="right"
+                          tick={{ fontSize: 10, fontFamily: 'monospace', fill: '#94A3B8' }}
+                          axisLine={false}
+                          tickLine={false}
+                          width={55}
+                          tickFormatter={(val) => val >= 1000 ? `${(val/1000).toFixed(1)}k` : val.toFixed(0)}
+                        />
+                        <Tooltip 
+                          contentStyle={{ 
+                            backgroundColor: '#1E222D', 
+                            border: '1px solid #2D3139', 
+                            color: '#E1E4E8', 
+                            fontFamily: 'monospace', 
+                            fontSize: '10px',
+                            borderRadius: '4px'
+                          }}
+                          itemStyle={{ color: '#E1E4E8' }}
+                          labelFormatter={(val) => formatDate(val)}
+                        />
+                        <Line 
+                          type="monotone" 
+                          dataKey="close" 
+                          stroke="#3B82F6" 
+                          strokeWidth={2}
+                          dot={false}
+                          activeDot={{ r: 4, fill: '#3B82F6', stroke: '#0B0E14', strokeWidth: 2 }}
+                          animationDuration={500}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex-1 flex flex-col items-center justify-center opacity-30 uppercase font-mono text-[9px] tracking-widest gap-2 bg-[#0B0E14]/30 rounded">
+                      <Database className="w-4 h-4" />
+                      No historical ticks found for selected range
+                    </div>
+                  )}
                 </div>
               </>
             ) : (
@@ -375,8 +402,11 @@ export default function App() {
             )}
           </div>
 
-          <div className="w-80 bg-[#151921] border border-[#2D3139] rounded p-4 flex flex-col gap-4 overflow-y-auto shadow-xl custom-scrollbar">
-            <h3 className="text-[10px] font-bold uppercase text-gray-500 tracking-widest">Risk & Technicals ({timeframe})</h3>
+          <div className="flex-1 bg-[#151921] border border-[#2D3139] rounded p-4 flex flex-col gap-4 shadow-xl min-h-[450px] custom-scrollbar overflow-y-auto overflow-x-hidden">
+            <h3 className="text-[10px] font-bold uppercase text-gray-400 tracking-widest flex items-center gap-2">
+              <div className="w-1.5 h-1.5 bg-[#00C087] rounded-full" />
+              Risk & Technicals ({timeframe})
+            </h3>
             
             <div className="space-y-4">
               <div className="flex flex-col gap-2">
