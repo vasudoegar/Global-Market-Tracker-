@@ -1,15 +1,21 @@
 import express from 'express';
-import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { readFileSync } from 'fs';
 import YahooFinancePkg from 'yahoo-finance2';
 import { subDays, subMonths, subYears } from 'date-fns';
 import dotenv from 'dotenv';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore/lite';
-import firebaseConfig from '../firebase-applet-config.json';
 
 dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Fix for ESM JSON import on Vercel/Node
+const firebaseConfigPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
+const firebaseConfig = JSON.parse(readFileSync(firebaseConfigPath, 'utf-8'));
 
 // Initialize Firebase
 const firebaseApp = initializeApp(firebaseConfig);
@@ -52,7 +58,8 @@ async function fetchHistoricalData(symbol: string) {
       interval: '1d'
     }, { validateResult: false });
 
-    const chartResult = await Promise.race([chartPromise, timeout(15000)]) as any; // Increased to 15s
+    // Tighter timeout for parallel execution on Vercel (10s hobby limit)
+    const chartResult = await Promise.race([chartPromise, timeout(7000)]) as any; 
     
     if (chartResult && chartResult.quotes) {
       return chartResult.quotes
@@ -179,12 +186,10 @@ function filterHistoryByDate(history: any[], pastDate: Date) {
 const app = express();
 app.use(express.json());
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 async function setupFrontend() {
   if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
     try {
+      const { createServer: createViteServer } = await import('vite');
       const vite = await createViteServer({
         server: { middlewareMode: true },
         appType: 'spa',
@@ -239,30 +244,24 @@ app.get('/api/market-data', async (req, res) => {
     const bench2Y = filterHistoryByDate(sp500History, subYears(now, 2));
     const bench1Y = filterHistoryByDate(sp500History, subYears(now, 1));
     
-    const results: any[] = [];
-    const batchSize = 4;
-    
-    for (let i = 0; i < ASSETS.length; i += batchSize) {
-      const batch = ASSETS.slice(i, i + batchSize);
-      const batchResults = await Promise.all(batch.map(async (asset) => {
-        try {
-          const fullHistory = await fetchHistoricalData(asset.symbol);
-          if (!fullHistory || fullHistory.length === 0) throw new Error('No data');
-          const returns = calculateReturns(fullHistory);
-          const history3Y = filterHistoryByDate(fullHistory, subYears(now, 3));
-          const riskMetrics: any = {
-            '1Y': calculateRiskMetrics(filterHistoryByDate(fullHistory, subYears(now, 1)), bench1Y),
-            '2Y': calculateRiskMetrics(filterHistoryByDate(fullHistory, subYears(now, 2)), bench2Y),
-            '3Y': calculateRiskMetrics(history3Y, bench3Y),
-          };
-          const lastPoint = fullHistory[fullHistory.length - 1];
-          return { ...asset, lastPrice: lastPoint.close, lastUpdated: lastPoint.date, returns, riskMetrics, history: history3Y };
-        } catch (err) {
-          return { ...asset, lastPrice: 0, lastUpdated: new Date(), returns: null, riskMetrics: {}, history: [] };
-        }
-      }));
-      results.push(...batchResults);
-    }
+    // Fully parallel fetching for Vercel speed
+    const results = await Promise.all(ASSETS.map(async (asset) => {
+      try {
+        const fullHistory = await fetchHistoricalData(asset.symbol);
+        if (!fullHistory || fullHistory.length === 0) throw new Error('No data');
+        const returns = calculateReturns(fullHistory);
+        const history3Y = filterHistoryByDate(fullHistory, subYears(now, 3));
+        const riskMetrics: any = {
+          '1Y': calculateRiskMetrics(filterHistoryByDate(fullHistory, subYears(now, 1)), bench1Y),
+          '2Y': calculateRiskMetrics(filterHistoryByDate(fullHistory, subYears(now, 2)), bench2Y),
+          '3Y': calculateRiskMetrics(history3Y, bench3Y),
+        };
+        const lastPoint = fullHistory[fullHistory.length - 1];
+        return { ...asset, lastPrice: lastPoint.close, lastUpdated: lastPoint.date, returns, riskMetrics, history: history3Y };
+      } catch (err) {
+        return { ...asset, lastPrice: 0, lastUpdated: new Date(), returns: null, riskMetrics: {}, history: [] };
+      }
+    }));
 
     // 2. Save to Cache ONLY if we have valid results with history
     const hasValidData = results.some(r => r.history && r.history.length > 0);
