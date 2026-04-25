@@ -233,6 +233,50 @@ function getSnapshotId() {
   return now.toISOString().split('T')[0];
 }
 
+async function generateMarketSnapshot(snapshotId: string) {
+  const snapshotRef = doc(db, 'snapshots', snapshotId);
+  
+  console.log(`>>> CACHE MISS: Generating snapshot ${snapshotId}`);
+  const now = new Date();
+  const sp500History = await fetchHistoricalData('^GSPC');
+  
+  const bench5Y = filterHistoryByDate(sp500History, subYears(now, 5));
+  const bench3Y = filterHistoryByDate(sp500History, subYears(now, 3));
+  const bench2Y = filterHistoryByDate(sp500History, subYears(now, 2));
+  const bench1Y = filterHistoryByDate(sp500History, subYears(now, 1));
+  
+  // Fully parallel fetching for Vercel speed
+  const results = await Promise.all(ASSETS.map(async (asset) => {
+    try {
+      const fullHistory = await fetchHistoricalData(asset.symbol);
+      if (!fullHistory || fullHistory.length === 0) throw new Error('No data');
+      const returns = calculateReturns(fullHistory);
+      const history5Y = filterHistoryByDate(fullHistory, subYears(now, 5));
+      const riskMetrics: any = {
+        '1Y': calculateRiskMetrics(filterHistoryByDate(fullHistory, subYears(now, 1)), bench1Y),
+        '2Y': calculateRiskMetrics(filterHistoryByDate(fullHistory, subYears(now, 2)), bench2Y),
+        '3Y': calculateRiskMetrics(filterHistoryByDate(fullHistory, subYears(now, 3)), bench3Y),
+        '5Y': calculateRiskMetrics(history5Y, bench5Y),
+      };
+      const lastPoint = fullHistory[fullHistory.length - 1];
+      return { ...asset, lastPrice: lastPoint.close, lastUpdated: lastPoint.date, returns, riskMetrics, history: history5Y };
+    } catch (err) {
+      return { ...asset, lastPrice: 0, lastUpdated: new Date(), returns: null, riskMetrics: {}, history: [] };
+    }
+  }));
+
+  // Save to Cache ONLY if we have valid results with history
+  const hasValidData = results.some(r => r.history && r.history.length > 0);
+  if (hasValidData) {
+    await setDoc(snapshotRef, {
+      date: snapshotId,
+      assets: results,
+      updatedAt: serverTimestamp()
+    });
+  }
+  return results;
+}
+
 app.get('/api/market-data', async (req, res) => {
   try {
     const snapshotId = `v9_${getSnapshotId()}`;
@@ -245,49 +289,30 @@ app.get('/api/market-data', async (req, res) => {
       return res.json(cachedDoc.data().assets);
     }
 
-    console.log(`>>> CACHE MISS: Generating snapshot ${snapshotId}`);
-    const now = new Date();
-    const sp500History = await fetchHistoricalData('^GSPC');
-    
-    const bench5Y = filterHistoryByDate(sp500History, subYears(now, 5));
-    const bench3Y = filterHistoryByDate(sp500History, subYears(now, 3));
-    const bench2Y = filterHistoryByDate(sp500History, subYears(now, 2));
-    const bench1Y = filterHistoryByDate(sp500History, subYears(now, 1));
-    
-    // Fully parallel fetching for Vercel speed
-    const results = await Promise.all(ASSETS.map(async (asset) => {
-      try {
-        const fullHistory = await fetchHistoricalData(asset.symbol);
-        if (!fullHistory || fullHistory.length === 0) throw new Error('No data');
-        const returns = calculateReturns(fullHistory);
-        const history5Y = filterHistoryByDate(fullHistory, subYears(now, 5));
-        const riskMetrics: any = {
-          '1Y': calculateRiskMetrics(filterHistoryByDate(fullHistory, subYears(now, 1)), bench1Y),
-          '2Y': calculateRiskMetrics(filterHistoryByDate(fullHistory, subYears(now, 2)), bench2Y),
-          '3Y': calculateRiskMetrics(filterHistoryByDate(fullHistory, subYears(now, 3)), bench3Y),
-          '5Y': calculateRiskMetrics(history5Y, bench5Y),
-        };
-        const lastPoint = fullHistory[fullHistory.length - 1];
-        return { ...asset, lastPrice: lastPoint.close, lastUpdated: lastPoint.date, returns, riskMetrics, history: history5Y };
-      } catch (err) {
-        return { ...asset, lastPrice: 0, lastUpdated: new Date(), returns: null, riskMetrics: {}, history: [] };
-      }
-    }));
-
-    // 2. Save to Cache ONLY if we have valid results with history
-    const hasValidData = results.some(r => r.history && r.history.length > 0);
-    if (hasValidData) {
-      await setDoc(snapshotRef, {
-        date: snapshotId,
-        assets: results,
-        updatedAt: serverTimestamp()
-      });
-    }
-
+    const results = await generateMarketSnapshot(snapshotId);
     res.json(results);
   } catch (error: any) {
     console.error('Market Data API Root Error:', error);
     res.status(500).json({ error: error.message || 'Quantum link timeout. Retrying...' });
+  }
+});
+
+// Automated Cron Endpoint
+app.get('/api/sync', async (req, res) => {
+  try {
+    // Vercel Cron Secret check (Optional but recommended)
+    // if (req.headers['authorization'] !== `Bearer ${process.env.CRON_SECRET}`) {
+    //   return res.status(401).end('Unauthorized');
+    // }
+
+    const snapshotId = `v9_${getSnapshotId()}`;
+    console.log(`>>> CRON TRIGGER: Syncing for ${snapshotId}`);
+    
+    const results = await generateMarketSnapshot(snapshotId);
+    res.json({ success: true, snapshotId, assetsFetched: results.length });
+  } catch (error: any) {
+    console.error('Cron Sync Error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

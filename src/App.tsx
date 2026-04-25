@@ -299,6 +299,7 @@ export default function App() {
                         asset.type === 'index' ? "text-blue-500" : "text-yellow-500"
                       )}>●</span> 
                       {asset.name}
+                      <span className="text-[9px] text-gray-500 font-mono ml-1 font-normal italic">({asset.symbol})</span>
                     </td>
                     <td className="p-3 text-[10px] font-mono text-gray-500 uppercase">
                       {asset.type === 'index' ? asset.region : ''}
