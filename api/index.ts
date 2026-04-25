@@ -24,7 +24,7 @@ const db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
 // Assets to track
 const ASSETS = [
   { symbol: '^GSPC', name: 'S&P 500', type: 'index', region: 'USA' },
-  { symbol: '^IXIC', name: 'Nasdaq 100', type: 'index', region: 'USA' },
+  { symbol: '^NDX', name: 'Nasdaq 100', type: 'index', region: 'USA' },
   { symbol: '^NSEI', name: 'Nifty 50', type: 'index', region: 'India' },
   { symbol: '^IBEX', name: 'IBEX 35', type: 'index', region: 'Spain' },
   { symbol: '^BVSP', name: 'IBOVESPA', type: 'index', region: 'Brazil' },
@@ -279,7 +279,7 @@ async function generateMarketSnapshot(snapshotId: string) {
 
 app.get('/api/market-data', async (req, res) => {
   try {
-    const snapshotId = `v9_${getSnapshotId()}`;
+    const snapshotId = `v10_${getSnapshotId()}`;
     const snapshotRef = doc(db, 'snapshots', snapshotId);
     
     // 1. Check Cache First
@@ -305,7 +305,7 @@ app.get('/api/sync', async (req, res) => {
     //   return res.status(401).end('Unauthorized');
     // }
 
-    const snapshotId = `v9_${getSnapshotId()}`;
+    const snapshotId = `v10_${getSnapshotId()}`;
     console.log(`>>> CRON TRIGGER: Syncing for ${snapshotId}`);
     
     const results = await generateMarketSnapshot(snapshotId);
