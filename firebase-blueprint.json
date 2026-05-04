@@ -6,19 +6,37 @@
       "type": "object",
       "properties": {
         "date": { "type": "string", "description": "ISO date string for the snapshot." },
-        "assets": { 
-          "type": "array", 
-          "description": "List of assets with their metrics."
-        },
-        "updatedAt": { "type": "string", "format": "date-time" }
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "isComplete": { "type": "boolean", "description": "Whether the snapshot generation is finished." },
+        "assetCount": { "type": "number", "description": "Total number of assets in this snapshot." }
       },
-      "required": ["date", "assets", "updatedAt"]
+      "required": ["date", "updatedAt", "isComplete"]
+    },
+    "Asset": {
+      "title": "Asset Data",
+      "description": "Historical metrics and risk data for a single asset.",
+      "type": "object",
+      "properties": {
+        "symbol": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "region": { "type": "string" },
+        "lastPrice": { "type": "number" },
+        "lastUpdated": { "type": "string" },
+        "returns": { "type": "object" },
+        "riskMetrics": { "type": "object" },
+        "history": { "type": "array" }
+      }
     }
   },
   "firestore": {
     "/snapshots/{date}": {
       "schema": "MarketSnapshot",
-      "description": "Stores daily snapshots of all tracked assets."
+      "description": "Stores metadata for a daily snapshot."
+    },
+    "/snapshots/{date}/assets/{assetSymbol}": {
+      "schema": "Asset",
+      "description": "Stores detailed data for a specific asset within a snapshot."
     }
   }
 }

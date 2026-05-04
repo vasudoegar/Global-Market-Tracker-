@@ -7,9 +7,8 @@ service cloud.firestore {
     }
 
     // Snapshots: Allow read/write for the backend to manage the cache.
-    // In a prototype environment using the Client SDK on the backend, 
-    // we need to explicitly allow this access.
-    match /snapshots/{date} {
+    // We use document tracking {date=**} to allow access to subcollections as well.
+    match /snapshots/{allPaths=**} {
       allow read, write: if true;
     }
   }

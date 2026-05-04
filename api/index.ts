@@ -6,7 +6,7 @@ import YahooFinancePkg from 'yahoo-finance2';
 import { subDays, subMonths, subYears } from 'date-fns';
 import dotenv from 'dotenv';
 import { initializeApp } from 'firebase/app';
-import { getFirestore, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore/lite';
+import { getFirestore, doc, getDoc, setDoc, serverTimestamp, collection, getDocs } from 'firebase/firestore/lite';
 
 dotenv.config();
 
@@ -28,10 +28,14 @@ const ASSETS = [
   { symbol: '^NSEI', name: 'Nifty 50', type: 'index', region: 'India' },
   { symbol: '^IBEX', name: 'IBEX 35', type: 'index', region: 'Spain' },
   { symbol: '^BVSP', name: 'IBOVESPA', type: 'index', region: 'Brazil' },
+  { symbol: '^KS11', name: 'KOSPI', type: 'index', region: 'South Korea' },
   { symbol: 'URTH', name: 'MSCI World', type: 'index', region: 'Global' },
   { symbol: 'EEM', name: 'MSCI Emerging Markets', type: 'index', region: 'Global' },
   { symbol: '^N225', name: 'Nikkei 225', type: 'index', region: 'Japan' },
   { symbol: '^HSI', name: 'Hang Seng Index', type: 'index', region: 'Hong Kong' },
+  { symbol: '000001.SS', name: 'Shanghai Composite', type: 'index', region: 'China' },
+  { symbol: '^AXJO', name: 'S&P/ASX 200', type: 'index', region: 'Australia' },
+  { symbol: '^GSPTSE', name: 'S&P/TSX Composite', type: 'index', region: 'Canada' },
   { symbol: '^FTSE', name: 'FTSE 100', type: 'index', region: 'UK' },
   { symbol: '^GDAXI', name: 'DAX Performance-Index', type: 'index', region: 'Germany' },
   { symbol: '^FCHI', name: 'CAC 40', type: 'index', region: 'France' },
@@ -235,6 +239,7 @@ function getSnapshotId() {
 
 async function generateMarketSnapshot(snapshotId: string) {
   const snapshotRef = doc(db, 'snapshots', snapshotId);
+  const assetsCollectionRef = collection(db, 'snapshots', snapshotId, 'assets');
   
   console.log(`>>> CACHE MISS: Generating snapshot ${snapshotId}`);
   const now = new Date();
@@ -265,28 +270,42 @@ async function generateMarketSnapshot(snapshotId: string) {
     }
   }));
 
-  // Save to Cache ONLY if we have valid results with history
+  // Save to Cache ONLY if we have valid results
   const hasValidData = results.some(r => r.history && r.history.length > 0);
   if (hasValidData) {
+    // 1. Create the parent snapshot doc with metadata
     await setDoc(snapshotRef, {
       date: snapshotId,
-      assets: results,
-      updatedAt: serverTimestamp()
+      updatedAt: serverTimestamp(),
+      isComplete: true,
+      assetCount: results.length
     });
+
+    // 2. Save each asset to subcollection to avoid 1MB limit
+    await Promise.all(results.map(asset => {
+      const assetDocRef = doc(db, 'snapshots', snapshotId, 'assets', asset.symbol.replace(/[^a-zA-Z0-9]/g, '_'));
+      return setDoc(assetDocRef, asset);
+    }));
   }
   return results;
 }
 
 app.get('/api/market-data', async (req, res) => {
   try {
-    const snapshotId = `v10_${getSnapshotId()}`;
+    const snapshotId = `v14_${getSnapshotId()}`;
     const snapshotRef = doc(db, 'snapshots', snapshotId);
+    const assetsCollectionRef = collection(db, 'snapshots', snapshotId, 'assets');
     
-    // 1. Check Cache First
+    // 1. Check if snapshot metadata exists
     const cachedDoc = await getDoc(snapshotRef);
-    if (cachedDoc.exists()) {
-      console.log(`>>> CACHE HIT: Serving snapshot ${snapshotId}`);
-      return res.json(cachedDoc.data().assets);
+    if (cachedDoc.exists() && cachedDoc.data().isComplete) {
+      console.log(`>>> CACHE HIT: Serving snapshot ${snapshotId} via subcollection`);
+      const assetsSnap = await getDocs(assetsCollectionRef);
+      const assets = assetsSnap.docs.map(d => d.data());
+      
+      if (assets.length > 0) {
+        return res.json(assets);
+      }
     }
 
     const results = await generateMarketSnapshot(snapshotId);
@@ -300,12 +319,7 @@ app.get('/api/market-data', async (req, res) => {
 // Automated Cron Endpoint
 app.get('/api/sync', async (req, res) => {
   try {
-    // Vercel Cron Secret check (Optional but recommended)
-    // if (req.headers['authorization'] !== `Bearer ${process.env.CRON_SECRET}`) {
-    //   return res.status(401).end('Unauthorized');
-    // }
-
-    const snapshotId = `v10_${getSnapshotId()}`;
+    const snapshotId = `v14_${getSnapshotId()}`;
     console.log(`>>> CRON TRIGGER: Syncing for ${snapshotId}`);
     
     const results = await generateMarketSnapshot(snapshotId);
